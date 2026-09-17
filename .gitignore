@@ -6,3 +6,6 @@ dist/
 __pycache__/
 venv/
 agent_memory.json
+dist/
+build/
+*.spec

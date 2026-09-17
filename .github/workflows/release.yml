@@ -1,0 +1,53 @@
+name: Build and Attach Release Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt pyinstaller
+
+    - name: Build Linux Binary
+      if: runner.os == 'Linux'
+      run: |
+        pyinstaller --onefile --name "TAJ_AN_Core_v5.7_Linux" taj_an_poc.py
+
+    - name: Build Windows Binary
+      if: runner.os == 'Windows'
+      run: |
+        pyinstaller --onefile --name "TAJ_AN_Core_v5.7_Windows.exe" taj_an_poc.py
+
+    - name: Upload Release Asset (Linux)
+      if: runner.os == 'Linux'
+      uses: softprops/action-gh-release@v2
+      with:
+        files: dist/TAJ_AN_Core_v5.7_Linux
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload Release Asset (Windows)
+      if: runner.os == 'Windows'
+      uses: softprops/action-gh-release@v2
+      with:
+        files: dist/TAJ_AN_Core_v5.7_Windows.exe
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
