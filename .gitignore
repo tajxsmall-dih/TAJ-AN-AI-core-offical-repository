@@ -4,3 +4,5 @@ dist/
 *.spec
 *.bak
 __pycache__/
+venv/
+agent_memory.json
