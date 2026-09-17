@@ -1,0 +1,278 @@
+import os
+import re
+import json
+import time
+import random
+import subprocess
+import ollama
+from playwright.sync_api import sync_playwright
+
+MEMORY_FILE = "agent_memory.json"
+
+# ==========================================
+# 1. TEXT SANITIZER (AI-ism Filter)
+# ==========================================
+class TextSanitizer:
+    def __init__(self):
+        self.opening_fluff = [
+            r"^(Certainly|Sure|Of course|Aha|Great)[!.,\s]*",
+            r"^(Here is|Here's|Below is) (a|the) (breakdown|list|summary|guide|overview)[^.:\n]*[:.]\s*",
+            r"^I (hope|can|would|'m happy to) (help|assist|provide)[^.:\n]*[:.]\s*",
+            r"^Let's (dive|delve|take a look)[^.:\n]*[:.]\s*"
+        ]
+        self.buzzwords = {
+            r"\bdelve into\b": "examine",
+            r"\ba testament to\b": "evidence of",
+            r"\bin today's (fast-paced|digital|modern) world\b": "currently",
+            r"\bcrucial to note that\b": "note that",
+            r"\balign with your goals\b": "fit your needs",
+            r"\bnavigating the landscape of\b": "handling",
+            r"\bharnessing the power of\b": "using",
+        }
+        self.conclusion_headers = [
+            r"\n+###?\s*(In Conclusion|Summary|Bottom Line|Final Thoughts)[:\s]*",
+            r"\n+\*\*(In Conclusion|Summary|Bottom Line|Final Thoughts):\*\*",
+        ]
+
+    def sanitize(self, text: str) -> str:
+        cleaned = text.strip()
+        for pattern in self.opening_fluff:
+            cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
+        for pattern, replacement in self.buzzwords.items():
+            cleaned = re.sub(pattern, replacement, cleaned, flags=re.IGNORECASE)
+        for pattern in self.conclusion_headers:
+            cleaned = re.sub(pattern, "\n\n", cleaned, flags=re.IGNORECASE)
+        return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
+# ==========================================
+# 2. PERFORMANCE TELEMETRY TRACKER
+# ==========================================
+class PerformanceMetrics:
+    def __init__(self):
+        self.ttft_ms: float = 0.0
+        self.total_time_s: float = 0.0
+        self.prompt_tokens: int = 0
+        self.completion_tokens: int = 0
+        self.eval_tps: float = 0.0
+
+    def report(self) -> str:
+        return (
+            f"[ Telemetry | TTFT: {self.ttft_ms:.2f}ms | "
+            f"Total: {self.total_time_s:.2f}s | "
+            f"Tokens: {self.completion_tokens} | "
+            f"Speed: {self.eval_tps:.2f} tok/s ]"
+        )
+
+
+# ==========================================
+# 3. AUTONOMOUS WEB SCRAPER MODULE
+# ==========================================
+class WebAgent:
+    def __init__(self, model_name: str = "llama3.2:3b"):
+        self.model_name = model_name
+
+    def normalize_url(self, url: str) -> str:
+        clean_url = url.strip()
+        if not clean_url.startswith(("http://", "https://")):
+            return f"https://{clean_url}"
+        return clean_url
+
+    def summarize_page(self, url: str, raw_text: str) -> str:
+        clean_text = raw_text.strip().replace("\n", " ")[:2000]
+        prompt = (
+            f"Extract 2 to 3 key technical facts from this webpage at {url}.\n"
+            f"Return ONLY concise bullet points without introductory fluff or greetings.\n\n"
+            f"Content:\n{clean_text}"
+        )
+        try:
+            response = ollama.chat(
+                model=self.model_name,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            if hasattr(response, 'message'):
+                return response.message.content.strip()
+            return response['message']['content'].strip()
+        except Exception as e:
+            return f"Summarization failed: {e}"
+
+    def browse_and_memorize(self, target_url: str) -> str:
+        valid_url = self.normalize_url(target_url)
+        print(f"\n[Web Agent]: Launching Playwright browser -> {valid_url}")
+        
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=False, slow_mo=500)
+                context = browser.new_context(viewport={"width": 1280, "height": 720})
+                page = context.new_page()
+                
+                page.goto(valid_url, timeout=25000, wait_until="domcontentloaded")
+                page.evaluate("window.scrollBy(0, 400)")
+                time.sleep(1.5)
+                
+                page_text = page.inner_text("body")
+                browser.close()
+
+            print("[Web Agent]: Page scraped successfully. Summarizing via local LLM...")
+            learnings = self.summarize_page(valid_url, page_text)
+
+            memory = []
+            if os.path.exists(MEMORY_FILE):
+                try:
+                    with open(MEMORY_FILE, "r") as f:
+                        memory = json.load(f)
+                except Exception:
+                    memory = []
+
+            entry = {
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "url": valid_url,
+                "learnings": learnings
+            }
+            memory.append(entry)
+
+            with open(MEMORY_FILE, "w") as f:
+                json.dump(memory, f, indent=2)
+
+            return f"Successfully researched {valid_url}.\nLearnings:\n{learnings}"
+
+        except Exception as e:
+            return f"[Web Agent Error]: Could not process {valid_url} ({str(e)})"
+
+
+# ==========================================
+# 4. ULTRON (System Audit Worker)
+# ==========================================
+class UltronAgent:
+    def execute_bash(self, command: str) -> str:
+        try:
+            res = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=10)
+            return res.stdout.strip() if res.stdout else res.stderr.strip()
+        except Exception as e:
+            return f"Execution Error: {str(e)}"
+
+    def run_system_audit(self) -> str:
+        ram = self.execute_bash("free -h | grep Mem | awk '{print $3 \"/\" $2}'")
+        disk = self.execute_bash("df -h / | awk 'NR==2 {print $3 \"/\" $2 \" (\" $5 \")\"}'")
+        cpu_load = self.execute_bash("uptime | awk -F'load average:' '{ print $2 }'")
+        return f"System Diagnostic -> RAM: {ram} | Disk: {disk} | CPU Load:{cpu_load}"
+
+
+# ==========================================
+# 5. JARVIS FRONT-END & LLM CLIENT
+# ==========================================
+class JarvisAssistant:
+    def __init__(self, model_name: str = "llama3.2:3b"):
+        self.model_name = model_name
+        self.sanitizer = TextSanitizer()
+        self.ultron = UltronAgent()
+        self.web_agent = WebAgent(model_name=model_name)
+        self.system_prompt = (
+            "You are JARVIS, the primary conversational engine of the TAJ_AN local system. "
+            "Your sister components are ULTRON (the hardware system monitor) and the Web Agent (headless browser). "
+            "Never refer to Marvel movies, Tony Stark, or fictional lore. "
+            "Answer clearly and directly without conversational fluff."
+        )
+
+    def load_web_memory(self) -> str:
+        if not os.path.exists(MEMORY_FILE):
+            return "No web memory recorded."
+        try:
+            with open(MEMORY_FILE, "r") as f:
+                data = json.load(f)
+                if not data:
+                    return "No web memory recorded."
+                entries = []
+                for entry in data[-3:]:
+                    entries.append(f"• Source ({entry.get('url')}): {entry.get('learnings')}")
+                return "\n".join(entries)
+        except Exception:
+            return "Failed to load memory store."
+
+    def simulate_pacing(self, text: str):
+        delay = min(len(text) * 0.01, 1.0) + random.uniform(0.1, 0.3)
+        time.sleep(delay)
+
+    def process_input(self, user_input: str):
+        query_lower = user_input.lower()
+
+        # 1. ULTRON ROUTING
+        ultron_keywords = ["ultron", "audit", "system", "health", "mobility", "ram", "disk", "hardware"]
+        action_keywords = ["check", "run", "status", "report", "monitor", "diagnose"]
+        
+        is_explaining_ultron = "who is ultron" in query_lower or "what is ultron" in query_lower
+        is_ultron_request = (
+            any(k in query_lower for k in ultron_keywords) and 
+            any(a in query_lower for a in action_keywords) and 
+            not is_explaining_ultron
+        )
+        
+        if is_ultron_request:
+            report = self.ultron.run_system_audit()
+            self.simulate_pacing(report)
+            print(f"\n[ULTRON Agent]: {report}")
+            return
+
+        # 2. WEB AGENT ROUTING (Regex URL Isolation)
+        has_web_kw = any(kw in query_lower for kw in ["browse", "search", "lookup", "fetch"])
+        has_url_structure = any(domain in query_lower for domain in ["http://", "https://", ".com", ".org", ".net", "youtube", "google"])
+
+        if has_web_kw or has_url_structure:
+            url_match = re.search(r'(https?://[^\s]+|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})', user_input)
+            if url_match:
+                target_url = url_match.group(0)
+                result = self.web_agent.browse_and_memorize(target_url)
+                print(f"\n[JARVIS]: {result}")
+                return
+
+        # 3. JARVIS CONVERSATIONAL CORE
+        start_time = time.perf_counter()
+        metrics = PerformanceMetrics()
+        web_context = self.load_web_memory()
+
+        prompt_payload = (
+            f"=== RECENT WEB RESEARCH ===\n{web_context}\n"
+            f"===========================\n\n"
+            f"User Query: {user_input}"
+        )
+
+        try:
+            response = ollama.chat(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": prompt_payload}
+                ]
+            )
+
+            metrics.total_time_s = time.perf_counter() - start_time
+            eval_ns = response.get('eval_duration', 0)
+            load_ns = response.get('load_duration', 0)
+            prompt_eval_ns = response.get('prompt_eval_duration', 0)
+            
+            metrics.completion_tokens = response.get('eval_count', 0)
+            if eval_ns > 0:
+                metrics.eval_tps = metrics.completion_tokens / (eval_ns / 1e9)
+            metrics.ttft_ms = (load_ns + prompt_eval_ns) / 1e6
+
+            raw_text = response.message.content if hasattr(response, 'message') else response['message']['content']
+            clean_output = self.sanitizer.sanitize(raw_text)
+
+            self.simulate_pacing(clean_output)
+            print(f"\nJARVIS: {clean_output}")
+            print(f"\033[90m{metrics.report()}\033[0m")
+
+        except Exception as e:
+            print(f"\n[JARVIS Core Error]: {str(e)}")
+
+
+# ==========================================
+# 6. TAJ_AN PoC RUNTIME
+# ==========================================
+if __name__ == "__main__":
+    system = JarvisAssistant(model_name="llama3.2:3b")
+    print("==================================================")
+    print("         TAJ_AN PoC Dual-Agent System")
+    print("==================================================")
+    print("Interfaces: JARVIS (Core) | ULTRON (Audit) | Web Agent (Browse)")
+    print("Type 'exit' or 'quit' to terminate.\n")
