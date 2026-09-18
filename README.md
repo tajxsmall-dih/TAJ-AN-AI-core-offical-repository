@@ -37,14 +37,3 @@
 📜 License
 
 Distributed under the MIT License.
-
-
----
-
-### Step 4: Commit, Rebase Sync, and Push Release Tag
-
-Run this one-liner to sync local commits with remote changes, push everything to `main`, and publish tag **`v5.8-beta`** to trigger GitHub Actions:
-
-```bash
-git add . && git commit -m "feat: upgrade core to v5.8-beta GUI studio with vision support" && git pull --rebase origin main && git push origin main && git tag v5.8-beta && git push origin v5.8-beta
-EOf
