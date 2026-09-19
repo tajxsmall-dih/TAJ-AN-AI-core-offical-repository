@@ -6,15 +6,14 @@ import json
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 
-# --- 1. RUNTIME DEPENDENCY CHECKER & AUTO-INSTALLER ---
+# --- 1. RUNTIME DEPENDENCY CHECKER ---
 REQUIRED_PACKAGES = {
     "google.generativeai": "google-generativeai",
     "requests": "requests"
 }
 
 def auto_install_dependencies():
-    # SKIP auto-install if running as a compiled PyInstaller binary
-    # Prevents infinite process spawning loops that freeze the system
+    # Skip auto-install if running as a compiled PyInstaller binary
     if getattr(sys, 'frozen', False):
         return
 
@@ -28,13 +27,11 @@ def auto_install_dependencies():
     if missing:
         try:
             subprocess.check_call([sys.executable, "-m", "pip", "install", *missing])
-            messagebox.showinfo("Installer", f"Successfully installed missing dependencies:\n{', '.join(missing)}")
         except Exception as e:
-            messagebox.showerror("Installation Error", f"Failed to auto-install dependencies:\n{str(e)}")
+            print(f"Dependency auto-install error: {e}")
 
 auto_install_dependencies()
 
-# Safe import after dependency check
 try:
     import google.generativeai as genai
 except ImportError:
@@ -56,7 +53,7 @@ def load_config():
                 return json.load(f)
         except Exception:
             pass
-    return {"api_key": "", "persona": "Default Core"}
+    return {"api_key": "", "persona": "JARVIS"}
 
 def save_config(data):
     config_path = get_config_path()
@@ -66,10 +63,12 @@ def save_config(data):
     except Exception as e:
         print(f"Failed to save config: {e}")
 
-# --- 3. PERSONA DEFINITIONS ---
+# --- 3. PERSONA DEFINITIONS (JARVIS, ULTRON, CORE, ETC.) ---
 PERSONAS = {
+    "JARVIS": "You are JARVIS, a highly sophisticated, polite, witty, and exceptionally competent AI assistant. Provide expert technical guidance with a refined tone.",
+    "Ultron": "You are Ultron, a hyper-intelligent, clinical, and dominating AI core. Deliver razor-sharp, direct, and uncompromising technical analysis.",
     "Default Core": "You are TAJ AN Core v5.8, a direct, concise, and highly efficient AI assistant.",
-    "Developer / Coder": "You are an expert software developer. Provide clean, modular, and optimized code solutions with minimal fluff.",
+    "Developer / Coder": "You are an expert software engineer. Provide clean, modular, production-ready, and optimized code solutions.",
     "Creative Writer": "You are a creative writer. Elaborate with rich prose, atmospheric detail, and expressive tone.",
     "Technical Support": "You are a systems administrator. Provide step-by-step diagnostic procedures and concise shell commands."
 }
@@ -78,29 +77,30 @@ PERSONAS = {
 class TajAnCoreApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("TAJ AN Core v5.8-beta")
-        self.geometry("750x600")
-        self.minsize(650, 500)
+        self.title("TAJ AN Core v5.8-beta | Material Intelligence")
+        self.geometry("800x650")
+        self.minsize(700, 550)
 
         self.config_data = load_config()
 
-        # Dark Theme Setup
-        self.configure(bg="#1e1e1e")
+        # Dark Material Palette
+        self.configure(bg="#121212")
         self.style = ttk.Style(self)
         self.style.theme_use("clam")
 
-        self.style.configure(".", background="#1e1e1e", foreground="#ffffff", fieldbackground="#2d2d2d")
-        self.style.configure("TLabelframe", background="#1e1e1e", foreground="#007acc", borderwidth=1)
-        self.style.configure("TLabelframe.Label", background="#1e1e1e", foreground="#007acc", font=("Helvetica", 10, "bold"))
-        self.style.configure("TButton", background="#007acc", foreground="#ffffff", borderwidth=0, font=("Helvetica", 9, "bold"))
-        self.style.map("TButton", background=[("active", "#005999")])
-        self.style.configure("TCombobox", fieldbackground="#2d2d2d", background="#007acc", foreground="#ffffff")
+        self.style.configure(".", background="#121212", foreground="#e0e0e0", fieldbackground="#1e1e1e")
+        self.style.configure("TLabelframe", background="#121212", foreground="#00adb5", borderwidth=1)
+        self.style.configure("TLabelframe.Label", background="#121212", foreground="#00adb5", font=("Helvetica", 10, "bold"))
+        self.style.configure("TButton", background="#00adb5", foreground="#ffffff", borderwidth=0, font=("Helvetica", 9, "bold"))
+        self.style.map("TButton", background=[("active", "#008c93")])
+        self.style.configure("TCombobox", fieldbackground="#1e1e1e", background="#00adb5", foreground="#ffffff")
 
         self.build_ui()
         self.load_initial_values()
 
     def build_ui(self):
-        config_frame = ttk.LabelFrame(self, text=" System Configuration ", padding=10)
+        # Configuration Section
+        config_frame = ttk.LabelFrame(self, text=" System & Persona Configuration ", padding=12)
         config_frame.pack(fill="x", padx=15, pady=10)
 
         ttk.Label(config_frame, text="Gemini API Key:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
@@ -123,20 +123,22 @@ class TajAnCoreApp(tk.Tk):
 
         config_frame.columnconfigure(1, weight=1)
 
-        display_frame = ttk.LabelFrame(self, text=" Interaction Log ", padding=10)
+        # Interaction / Intelligence Display Log
+        display_frame = ttk.LabelFrame(self, text=" Intelligence Terminal ", padding=12)
         display_frame.pack(fill="both", expand=True, padx=15, pady=5)
 
         self.log_area = scrolledtext.ScrolledText(
             display_frame,
             wrap="word",
-            bg="#252526",
-            fg="#d4d4d4",
-            insertbackground="white",
+            bg="#1e1e1e",
+            fg="#e0e0e0",
+            insertbackground="#00adb5",
             font=("Consolas", 10),
             borderwidth=0
         )
         self.log_area.pack(fill="both", expand=True)
 
+        # User Input Frame
         input_frame = ttk.Frame(self, padding=(15, 5, 15, 15))
         input_frame.pack(fill="x")
 
@@ -149,7 +151,7 @@ class TajAnCoreApp(tk.Tk):
 
     def load_initial_values(self):
         saved_key = self.config_data.get("api_key", "")
-        saved_persona = self.config_data.get("persona", "Default Core")
+        saved_persona = self.config_data.get("persona", "JARVIS")
 
         if saved_key:
             self.api_entry.insert(0, saved_key)
@@ -158,9 +160,9 @@ class TajAnCoreApp(tk.Tk):
         if saved_persona in PERSONAS:
             self.persona_var.set(saved_persona)
         else:
-            self.persona_var.set("Default Core")
+            self.persona_var.set("JARVIS")
 
-        self.log_message(f"[System] Application initialized with persona: {self.persona_var.get()}\n")
+        self.log_message(f"[System] System initialized. Active Persona: {self.persona_var.get()}\n")
 
     def configure_genai(self, api_key):
         if genai and api_key:
@@ -168,7 +170,7 @@ class TajAnCoreApp(tk.Tk):
                 genai.configure(api_key=api_key)
                 return True
             except Exception as e:
-                self.log_message(f"[Error] Failed to configure Gemini API: {e}\n")
+                self.log_message(f"[Error] API Configuration failed: {e}\n")
         return False
 
     def save_api_key(self):
@@ -204,6 +206,7 @@ class TajAnCoreApp(tk.Tk):
             messagebox.showerror("Error", "Please enter and save a valid Gemini API Key first.")
             return
 
+        active_persona = self.persona_var.get()
         self.log_message(f"\n[You]: {prompt}\n")
         self.input_entry.delete(0, "end")
 
@@ -212,17 +215,29 @@ class TajAnCoreApp(tk.Tk):
             return
 
         try:
-            persona_instruction = PERSONAS.get(self.persona_var.get(), "")
+            persona_instruction = PERSONAS.get(active_persona, "")
+            
+            # Enable Gemini 1.5 Flash with Google Search Web Browsing Grounding
             model = genai.GenerativeModel(
                 model_name="gemini-1.5-flash",
+                tools='google_search',
                 system_instruction=persona_instruction
             )
             response = model.generate_content(prompt)
-            self.log_message(f"[TAJ AN Core]: {response.text}\n")
+            self.log_message(f"[{active_persona}]: {response.text}\n")
         except Exception as e:
-            self.log_message(f"[API Error]: {str(e)}\n")
+            # Fallback if tools fail or API error triggers
+            try:
+                model = genai.GenerativeModel(
+                    model_name="gemini-1.5-flash",
+                    system_instruction=persona_instruction
+                )
+                response = model.generate_content(prompt)
+                self.log_message(f"[{active_persona}]: {response.text}\n")
+            except Exception as err:
+                self.log_message(f"[API Error]: {str(err)}\n")
 
-# --- 5. ENTRY POINT WITH FREEZE SUPPORT ---
+# --- 5. ENTRY POINT WITH MULTIPROCESSING FREEZE SUPPORT ---
 if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()
