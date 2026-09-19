@@ -4,7 +4,7 @@ import subprocess
 import importlib
 import json
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext
+from tkinter import ttk, messagebox, scrolledtext, filedialog
 
 # --- 1. RUNTIME DEPENDENCY CHECKER ---
 REQUIRED_PACKAGES = {
@@ -13,7 +13,6 @@ REQUIRED_PACKAGES = {
 }
 
 def auto_install_dependencies():
-    # Skip auto-install if running as a compiled PyInstaller binary
     if getattr(sys, 'frozen', False):
         return
 
@@ -63,7 +62,7 @@ def save_config(data):
     except Exception as e:
         print(f"Failed to save config: {e}")
 
-# --- 3. PERSONA DEFINITIONS (JARVIS, ULTRON, CORE, ETC.) ---
+# --- 3. PERSONA DEFINITIONS ---
 PERSONAS = {
     "JARVIS": "You are JARVIS, a highly sophisticated, polite, witty, and exceptionally competent AI assistant. Provide expert technical guidance with a refined tone.",
     "Ultron": "You are Ultron, a hyper-intelligent, clinical, and dominating AI core. Deliver razor-sharp, direct, and uncompromising technical analysis.",
@@ -78,9 +77,10 @@ class TajAnCoreApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("TAJ AN Core v5.8-beta | Material Intelligence")
-        self.geometry("800x650")
+        self.geometry("850x700")
         self.minsize(700, 550)
 
+        self.attached_file_path = None
         self.config_data = load_config()
 
         # Dark Material Palette
@@ -95,8 +95,21 @@ class TajAnCoreApp(tk.Tk):
         self.style.map("TButton", background=[("active", "#008c93")])
         self.style.configure("TCombobox", fieldbackground="#1e1e1e", background="#00adb5", foreground="#ffffff")
 
+        self.setup_app_icon()
         self.build_ui()
         self.load_initial_values()
+
+    def setup_app_icon(self):
+        # Create a fallback programmatic icon if no .png/.ico file is found on disk
+        try:
+            icon_img = tk.PhotoImage(width=32, height=32)
+            for x in range(32):
+                for y in range(32):
+                    if 4 <= x <= 27 and 4 <= y <= 27:
+                        icon_img.put("#00adb5", (x, y))
+            self.iconphoto(True, icon_img)
+        except Exception:
+            pass
 
     def build_ui(self):
         # Configuration Section
@@ -123,7 +136,7 @@ class TajAnCoreApp(tk.Tk):
 
         config_frame.columnconfigure(1, weight=1)
 
-        # Interaction / Intelligence Display Log
+        # Interaction Display Log
         display_frame = ttk.LabelFrame(self, text=" Intelligence Terminal ", padding=12)
         display_frame.pack(fill="both", expand=True, padx=15, pady=5)
 
@@ -138,9 +151,15 @@ class TajAnCoreApp(tk.Tk):
         )
         self.log_area.pack(fill="both", expand=True)
 
-        # User Input Frame
+        # User Input & File Attachment Frame
         input_frame = ttk.Frame(self, padding=(15, 5, 15, 15))
         input_frame.pack(fill="x")
+
+        self.btn_attach = ttk.Button(input_frame, text="📎 Attach", command=self.attach_file)
+        self.btn_attach.pack(side="left", padx=(0, 5))
+
+        self.lbl_attachment = ttk.Label(input_frame, text="", font=("Helvetica", 8, "italic"))
+        self.lbl_attachment.pack(side="left", padx=(0, 5))
 
         self.input_entry = ttk.Entry(input_frame)
         self.input_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
@@ -148,6 +167,17 @@ class TajAnCoreApp(tk.Tk):
 
         self.btn_send = ttk.Button(input_frame, text="Send Prompt", command=self.send_prompt)
         self.btn_send.pack(side="right")
+
+    def attach_file(self):
+        filepath = filedialog.askopenfilename(
+            title="Select File Attachment",
+            filetypes=[("All Files", "*.*"), ("Text Files", "*.txt"), ("Python Files", "*.py")]
+        )
+        if filepath:
+            self.attached_file_path = filepath
+            filename = os.path.basename(filepath)
+            self.lbl_attachment.config(text=f"[{filename}]")
+            self.log_message(f"[System] File attached: {filepath}\n")
 
     def load_initial_values(self):
         saved_key = self.config_data.get("api_key", "")
@@ -196,48 +226,86 @@ class TajAnCoreApp(tk.Tk):
         self.log_area.insert("end", text)
         self.log_area.see("end")
 
+    def local_fallback_engine(self, prompt, persona):
+        """ Local Offline Fallback Intelligence Generator """
+        persona_prefix = f"[{persona} - Local Engine]"
+        
+        # Include attached file text if attached
+        file_content = ""
+        if self.attached_file_path and os.path.exists(self.attached_file_path):
+            try:
+                with open(self.attached_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    file_content = f"\n\n--- ATTACHED FILE ({os.path.basename(self.attached_file_path)}) ---\n" + f.read(2000)
+            except Exception as e:
+                file_content = f"\n[File Read Error: {e}]"
+
+        combined_prompt = prompt + file_content
+
+        response = (
+            f"{persona_prefix}: API connection unavailable or model route offline.\n"
+            f"Processed Local Query: '{combined_prompt[:100]}...'\n"
+            f"Status: Core operational in local offline diagnostic mode."
+        )
+        return response
+
     def send_prompt(self):
         prompt = self.input_entry.get().strip()
         if not prompt:
             return
 
         api_key = self.api_entry.get().strip()
-        if not api_key:
-            messagebox.showerror("Error", "Please enter and save a valid Gemini API Key first.")
-            return
-
         active_persona = self.persona_var.get()
+
         self.log_message(f"\n[You]: {prompt}\n")
         self.input_entry.delete(0, "end")
 
-        if not genai:
-            self.log_message("[System Error] google-generativeai module is missing.\n")
+        # Read attached file content if present
+        file_data = ""
+        if self.attached_file_path and os.path.exists(self.attached_file_path):
+            try:
+                with open(self.attached_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    file_data = f"\n\n[Attached File Content]:\n" + f.read(4000)
+                self.log_message(f"[System] Appending file '{os.path.basename(self.attached_file_path)}' to payload.\n")
+            except Exception as e:
+                self.log_message(f"[Warning] Could not read attached file: {e}\n")
+            
+            # Reset attachment indicator after sending
+            self.attached_file_path = None
+            self.lbl_attachment.config(text="")
+
+        full_payload = prompt + file_data
+
+        if not genai or not api_key:
+            fallback_res = self.local_fallback_engine(full_payload, active_persona)
+            self.log_message(f"{fallback_res}\n")
             return
 
-        try:
-            persona_instruction = PERSONAS.get(active_persona, "")
-            
-            # Enable Gemini 1.5 Flash with Google Search Web Browsing Grounding
-            model = genai.GenerativeModel(
-                model_name="gemini-1.5-flash",
-                tools='google_search',
-                system_instruction=persona_instruction
-            )
-            response = model.generate_content(prompt)
-            self.log_message(f"[{active_persona}]: {response.text}\n")
-        except Exception as e:
-            # Fallback if tools fail or API error triggers
+        persona_instruction = PERSONAS.get(active_persona, "")
+        
+        # Candidate model names to handle API version routing changes
+        model_candidates = ["gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-pro"]
+        success = False
+
+        for m_name in model_candidates:
             try:
                 model = genai.GenerativeModel(
-                    model_name="gemini-1.5-flash",
+                    model_name=m_name,
                     system_instruction=persona_instruction
                 )
-                response = model.generate_content(prompt)
+                response = model.generate_content(full_payload)
                 self.log_message(f"[{active_persona}]: {response.text}\n")
+                success = True
+                break
             except Exception as err:
-                self.log_message(f"[API Error]: {str(err)}\n")
+                print(f"Model {m_name} failed: {err}")
+                continue
 
-# --- 5. ENTRY POINT WITH MULTIPROCESSING FREEZE SUPPORT ---
+        if not success:
+            # Fall back to offline local engine
+            fallback_res = self.local_fallback_engine(full_payload, active_persona)
+            self.log_message(f"{fallback_res}\n")
+
+# --- 5. ENTRY POINT ---
 if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()
