@@ -6,18 +6,25 @@ import json
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 
+# --- 1. RUNTIME DEPENDENCY CHECKER & AUTO-INSTALLER ---
 REQUIRED_PACKAGES = {
     "google.generativeai": "google-generativeai",
     "requests": "requests"
 }
 
 def auto_install_dependencies():
+    # SKIP auto-install if running as a compiled PyInstaller binary
+    # Prevents infinite process spawning loops that freeze the system
+    if getattr(sys, 'frozen', False):
+        return
+
     missing = []
     for module_name, pip_name in REQUIRED_PACKAGES.items():
         try:
             importlib.import_module(module_name)
         except ImportError:
             missing.append(pip_name)
+    
     if missing:
         try:
             subprocess.check_call([sys.executable, "-m", "pip", "install", *missing])
@@ -27,11 +34,13 @@ def auto_install_dependencies():
 
 auto_install_dependencies()
 
+# Safe import after dependency check
 try:
     import google.generativeai as genai
 except ImportError:
     genai = None
 
+# --- 2. CONFIG & PATH MANAGEMENT ---
 def get_config_path():
     if getattr(sys, 'frozen', False):
         base_dir = os.path.dirname(sys.executable)
@@ -57,6 +66,7 @@ def save_config(data):
     except Exception as e:
         print(f"Failed to save config: {e}")
 
+# --- 3. PERSONA DEFINITIONS ---
 PERSONAS = {
     "Default Core": "You are TAJ AN Core v5.8, a direct, concise, and highly efficient AI assistant.",
     "Developer / Coder": "You are an expert software developer. Provide clean, modular, and optimized code solutions with minimal fluff.",
@@ -64,6 +74,7 @@ PERSONAS = {
     "Technical Support": "You are a systems administrator. Provide step-by-step diagnostic procedures and concise shell commands."
 }
 
+# --- 4. MAIN APPLICATION GUI ---
 class TajAnCoreApp(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -73,6 +84,7 @@ class TajAnCoreApp(tk.Tk):
 
         self.config_data = load_config()
 
+        # Dark Theme Setup
         self.configure(bg="#1e1e1e")
         self.style = ttk.Style(self)
         self.style.theme_use("clam")
@@ -210,10 +222,10 @@ class TajAnCoreApp(tk.Tk):
         except Exception as e:
             self.log_message(f"[API Error]: {str(e)}\n")
 
+# --- 5. ENTRY POINT WITH FREEZE SUPPORT ---
 if __name__ == "__main__":
-    if sys.platform.startswith('win'):
-        import multiprocessing
-        multiprocessing.freeze_support()
+    import multiprocessing
+    multiprocessing.freeze_support()
 
     app = TajAnCoreApp()
     app.mainloop()
