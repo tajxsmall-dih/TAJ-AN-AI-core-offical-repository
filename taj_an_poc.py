@@ -6,7 +6,6 @@ import json
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 
-# --- 1. RUNTIME DEPENDENCY CHECKER & AUTO-INSTALLER ---
 REQUIRED_PACKAGES = {
     "google.generativeai": "google-generativeai",
     "requests": "requests"
@@ -19,7 +18,6 @@ def auto_install_dependencies():
             importlib.import_module(module_name)
         except ImportError:
             missing.append(pip_name)
-    
     if missing:
         try:
             subprocess.check_call([sys.executable, "-m", "pip", "install", *missing])
@@ -29,13 +27,11 @@ def auto_install_dependencies():
 
 auto_install_dependencies()
 
-# Import dependencies after check
 try:
     import google.generativeai as genai
 except ImportError:
     genai = None
 
-# --- 2. CONFIG & PATH MANAGEMENT ---
 def get_config_path():
     if getattr(sys, 'frozen', False):
         base_dir = os.path.dirname(sys.executable)
@@ -44,24 +40,23 @@ def get_config_path():
     return os.path.join(base_dir, "config.json")
 
 def load_config():
-    path = get_config_path()
-    if os.path.exists(path):
+    config_path = get_config_path()
+    if os.path.exists(config_path):
         try:
-            with open(path, "r") as f:
+            with open(config_path, "r") as f:
                 return json.load(f)
         except Exception:
             pass
     return {"api_key": "", "persona": "Default Core"}
 
 def save_config(data):
-    path = get_config_path()
+    config_path = get_config_path()
     try:
-        with open(path, "w") as f:
+        with open(config_path, "w") as f:
             json.dump(data, f, indent=2)
     except Exception as e:
         print(f"Failed to save config: {e}")
 
-# --- 3. PERSONA DEFINITIONS ---
 PERSONAS = {
     "Default Core": "You are TAJ AN Core v5.8, a direct, concise, and highly efficient AI assistant.",
     "Developer / Coder": "You are an expert software developer. Provide clean, modular, and optimized code solutions with minimal fluff.",
@@ -69,7 +64,6 @@ PERSONAS = {
     "Technical Support": "You are a systems administrator. Provide step-by-step diagnostic procedures and concise shell commands."
 }
 
-# --- 4. MAIN APPLICATION GUI ---
 class TajAnCoreApp(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -79,12 +73,10 @@ class TajAnCoreApp(tk.Tk):
 
         self.config_data = load_config()
 
-        # Modern Dark Theme Setup
         self.configure(bg="#1e1e1e")
         self.style = ttk.Style(self)
         self.style.theme_use("clam")
-        
-        # Configure TTK Colors
+
         self.style.configure(".", background="#1e1e1e", foreground="#ffffff", fieldbackground="#2d2d2d")
         self.style.configure("TLabelframe", background="#1e1e1e", foreground="#007acc", borderwidth=1)
         self.style.configure("TLabelframe.Label", background="#1e1e1e", foreground="#007acc", font=("Helvetica", 10, "bold"))
@@ -96,11 +88,9 @@ class TajAnCoreApp(tk.Tk):
         self.load_initial_values()
 
     def build_ui(self):
-        # Header Configuration Panel
         config_frame = ttk.LabelFrame(self, text=" System Configuration ", padding=10)
         config_frame.pack(fill="x", padx=15, pady=10)
 
-        # API Key Section
         ttk.Label(config_frame, text="Gemini API Key:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.api_entry = ttk.Entry(config_frame, show="*")
         self.api_entry.grid(row=0, column=1, sticky="ew", padx=5, pady=5)
@@ -108,12 +98,11 @@ class TajAnCoreApp(tk.Tk):
         self.btn_save_key = ttk.Button(config_frame, text="Save Key", command=self.save_api_key)
         self.btn_save_key.grid(row=0, column=2, padx=5, pady=5)
 
-        # Persona Selector
         ttk.Label(config_frame, text="Active Persona:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
         self.persona_var = tk.StringVar()
         self.persona_combo = ttk.Combobox(
-            config_frame, 
-            textvariable=self.persona_var, 
+            config_frame,
+            textvariable=self.persona_var,
             values=list(PERSONAS.keys()),
             state="readonly"
         )
@@ -122,22 +111,20 @@ class TajAnCoreApp(tk.Tk):
 
         config_frame.columnconfigure(1, weight=1)
 
-        # Chat / Output Log Display
         display_frame = ttk.LabelFrame(self, text=" Interaction Log ", padding=10)
         display_frame.pack(fill="both", expand=True, padx=15, pady=5)
 
         self.log_area = scrolledtext.ScrolledText(
-            display_frame, 
-            wrap="word", 
-            bg="#252526", 
-            fg="#d4d4d4", 
+            display_frame,
+            wrap="word",
+            bg="#252526",
+            fg="#d4d4d4",
             insertbackground="white",
             font=("Consolas", 10),
             borderwidth=0
         )
         self.log_area.pack(fill="both", expand=True)
 
-        # Input Prompt Area
         input_frame = ttk.Frame(self, padding=(15, 5, 15, 15))
         input_frame.pack(fill="x")
 
@@ -180,7 +167,7 @@ class TajAnCoreApp(tk.Tk):
 
         self.config_data["api_key"] = key
         save_config(self.config_data)
-        
+
         if self.configure_genai(key):
             messagebox.showinfo("Success", "API Key saved and configured successfully.")
             self.log_message("[System] API Key updated successfully.\n")
@@ -223,7 +210,6 @@ class TajAnCoreApp(tk.Tk):
         except Exception as e:
             self.log_message(f"[API Error]: {str(e)}\n")
 
-# --- 5. ENTRY POINT WITH PYINSTALLER FREEZE PROTECTION ---
 if __name__ == "__main__":
     if sys.platform.startswith('win'):
         import multiprocessing
