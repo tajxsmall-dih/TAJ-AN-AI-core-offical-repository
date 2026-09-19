@@ -1,235 +1,233 @@
-import os
 import sys
-import base64
-import threading
-import webbrowser
+import os
 import subprocess
-import multiprocessing
+import importlib
+import json
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import ttk, messagebox, scrolledtext
 
-# --- Dependency Auto-Installer ---
-def ensure_dependencies():
-    """Ensure required packages are installed, bypassing execution if running inside a compiled PyInstaller binary."""
-    if getattr(sys, 'frozen', False):
-        return
+# --- 1. RUNTIME DEPENDENCY CHECKER & AUTO-INSTALLER ---
+REQUIRED_PACKAGES = {
+    "google.generativeai": "google-generativeai",
+    "requests": "requests"
+}
 
-    required_packages = {
-        "customtkinter": "customtkinter",
-        "requests": "requests",
-        "dotenv": "python-dotenv"
-    }
-
+def auto_install_dependencies():
     missing = []
-    for module_name, pip_name in required_packages.items():
+    for module_name, pip_name in REQUIRED_PACKAGES.items():
         try:
-            __import__(module_name)
+            importlib.import_module(module_name)
         except ImportError:
             missing.append(pip_name)
-
+    
     if missing:
-        print(f"[!] Installing missing dependencies: {missing}...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install"] + missing)
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", *missing])
+            messagebox.showinfo("Installer", f"Successfully installed missing dependencies:\n{', '.join(missing)}")
+        except Exception as e:
+            messagebox.showerror("Installation Error", f"Failed to auto-install dependencies:\n{str(e)}")
 
-ensure_dependencies()
+auto_install_dependencies()
 
-import customtkinter as ctk
-import requests
-from dotenv import load_dotenv
+# Import dependencies after check
+try:
+    import google.generativeai as genai
+except ImportError:
+    genai = None
 
-# Set CustomTkinter GUI theme settings
-ctk.set_appearance_mode("Dark")
-ctk.set_default_color_theme("blue")
+# --- 2. CONFIG & PATH MANAGEMENT ---
+def get_config_path():
+    if getattr(sys, 'frozen', False):
+        base_dir = os.path.dirname(sys.executable)
+    else:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_dir, "config.json")
 
-# --- Helper Functions ---
-def check_ollama():
-    """Verify if local Ollama daemon is reachable on port 11434."""
+def load_config():
+    path = get_config_path()
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"api_key": "", "persona": "Default Core"}
+
+def save_config(data):
+    path = get_config_path()
     try:
-        res = requests.get("http://localhost:11434/api/tags", timeout=2)
-        return res.status_code == 200
-    except Exception:
-        return False
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        print(f"Failed to save config: {e}")
 
-def encode_image_base64(file_path):
-    """Convert local image files to base64 strings for multimodal LLM vision queries."""
-    with open(file_path, "rb") as f:
-        return base64.b64encode(f.read()).decode("utf-8")
+# --- 3. PERSONA DEFINITIONS ---
+PERSONAS = {
+    "Default Core": "You are TAJ AN Core v5.8, a direct, concise, and highly efficient AI assistant.",
+    "Developer / Coder": "You are an expert software developer. Provide clean, modular, and optimized code solutions with minimal fluff.",
+    "Creative Writer": "You are a creative writer. Elaborate with rich prose, atmospheric detail, and expressive tone.",
+    "Technical Support": "You are a systems administrator. Provide step-by-step diagnostic procedures and concise shell commands."
+}
 
-# --- First-Run Wizard Toplevel Window ---
-class SetupWizard(ctk.CTkToplevel):
-    """Wizard window launched when neither Ollama nor Gemini API keys are configured."""
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.title("TAJ_AN Core v5.8-beta — First-Time Setup")
-        self.geometry("520x420")
-        self.resizable(False, False)
-        self.grab_set()
-
-        ctk.CTkLabel(self, text="🚀 Welcome to TAJ_AN Core Studio", font=("Helvetica", 18, "bold")).pack(pady=15)
-        ctk.CTkLabel(self, text="No local Ollama instance or Gemini API key was detected.\nChoose how you want to configure your engine:", font=("Helvetica", 12)).pack(pady=5)
-
-        ctk.CTkButton(self, text="1. Setup Cloud Mode (Google Gemini API)", command=self.setup_gemini, width=380, height=35).pack(pady=10)
-        ctk.CTkButton(self, text="2. Setup Local Mode (Download Ollama)", command=self.setup_ollama, width=380, height=35).pack(pady=10)
-        ctk.CTkButton(self, text="3. Search Google for Free Gemini Key", command=self.search_key, width=380, height=35).pack(pady=10)
-        ctk.CTkButton(self, text="Skip & Launch (Limited Mode)", fg_color="transparent", border_width=1, command=self.destroy, width=380).pack(pady=15)
-
-    def setup_gemini(self):
-        """Open Gemini API portal and write provided key to local .env configuration."""
-        webbrowser.open("https://aistudio.google.com/app/apikey")
-        dialog = ctk.CTkInputDialog(text="Paste your GEMINI_API_KEY below:", title="API Key Setup")
-        key = dialog.get_input()
-        if key:
-            with open(".env", "a") as f:
-                f.write(f"\nGEMINI_API_KEY={key.strip()}\n")
-            os.environ["GEMINI_API_KEY"] = key.strip()
-            messagebox.showinfo("Success", "Gemini API Key saved to .env file!")
-            self.destroy()
-
-    def setup_ollama(self):
-        """Guide user to local Ollama downloads and required model pull commands."""
-        webbrowser.open("https://ollama.com/download")
-        messagebox.showinfo("Ollama Setup", "1. Install Ollama.\n2. Run 'ollama pull llama3.2-vision' in terminal.\n3. Restart TAJ_AN Core.")
-        self.destroy()
-
-    def search_key(self):
-        """Direct user to web guides on getting free API access keys."""
-        webbrowser.open("https://www.google.com/search?q=how+to+get+free+gemini+api+key")
-
-# --- Main Application Window ---
-class TAJANCoreApp(ctk.CTk):
-    """Main application GUI managing chat flow, file attachments, and multithreaded AI calls."""
+# --- 4. MAIN APPLICATION GUI ---
+class TajAnCoreApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("TAJ_AN Core v5.8-beta — Multimodal Studio")
-        self.geometry("800x620")
+        self.title("TAJ AN Core v5.8-beta")
+        self.geometry("750x600")
+        self.minsize(650, 500)
 
-        self.selected_file = None
-        load_dotenv()
+        self.config_data = load_config()
 
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(0, weight=1)
-
-        # Status Bar Header
-        self.header_frame = ctk.CTkFrame(self, height=40)
-        self.header_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
+        # Modern Dark Theme Setup
+        self.configure(bg="#1e1e1e")
+        self.style = ttk.Style(self)
+        self.style.theme_use("clam")
         
-        self.status_label = ctk.CTkLabel(self.header_frame, text="Checking System Engine...", font=("Helvetica", 12))
-        self.status_label.pack(side="left", padx=15)
+        # Configure TTK Colors
+        self.style.configure(".", background="#1e1e1e", foreground="#ffffff", fieldbackground="#2d2d2d")
+        self.style.configure("TLabelframe", background="#1e1e1e", foreground="#007acc", borderwidth=1)
+        self.style.configure("TLabelframe.Label", background="#1e1e1e", foreground="#007acc", font=("Helvetica", 10, "bold"))
+        self.style.configure("TButton", background="#007acc", foreground="#ffffff", borderwidth=0, font=("Helvetica", 9, "bold"))
+        self.style.map("TButton", background=[("active", "#005999")])
+        self.style.configure("TCombobox", fieldbackground="#2d2d2d", background="#007acc", foreground="#ffffff")
 
-        # Chat Interface
-        self.chat_box = ctk.CTkTextbox(self, font=("Consolas", 12), state="disabled")
-        self.chat_box.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
+        self.build_ui()
+        self.load_initial_values()
 
-        self.file_label = ctk.CTkLabel(self, text="No attachment", font=("Helvetica", 11), text_color="gray")
-        self.file_label.grid(row=2, column=0, sticky="w", padx=15, pady=2)
+    def build_ui(self):
+        # Header Configuration Panel
+        config_frame = ttk.LabelFrame(self, text=" System Configuration ", padding=10)
+        config_frame.pack(fill="x", padx=15, pady=10)
 
-        # Input Frame
-        self.input_frame = ctk.CTkFrame(self)
-        self.input_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 10))
+        # API Key Section
+        ttk.Label(config_frame, text="Gemini API Key:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        self.api_entry = ttk.Entry(config_frame, show="*")
+        self.api_entry.grid(row=0, column=1, sticky="ew", padx=5, pady=5)
 
-        self.entry = ctk.CTkEntry(self.input_frame, placeholder_text="Ask TAJ_AN Core or describe attached media...", font=("Helvetica", 13))
-        self.entry.pack(side="left", fill="x", expand=True, padx=(10, 5), pady=10)
-        self.entry.bind("<Return>", lambda event: self.send_message())
+        self.btn_save_key = ttk.Button(config_frame, text="Save Key", command=self.save_api_key)
+        self.btn_save_key.grid(row=0, column=2, padx=5, pady=5)
 
-        self.attach_btn = ctk.CTkButton(self.input_frame, text="📎 Attach", width=80, command=self.attach_file)
-        self.attach_btn.pack(side="left", padx=5)
+        # Persona Selector
+        ttk.Label(config_frame, text="Active Persona:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+        self.persona_var = tk.StringVar()
+        self.persona_combo = ttk.Combobox(
+            config_frame, 
+            textvariable=self.persona_var, 
+            values=list(PERSONAS.keys()),
+            state="readonly"
+        )
+        self.persona_combo.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
+        self.persona_combo.bind("<<ComboboxSelected>>", self.on_persona_change)
 
-        self.send_btn = ctk.CTkButton(self.input_frame, text="Send 🚀", width=90, command=self.send_message)
-        self.send_btn.pack(side="left", padx=(5, 10))
+        config_frame.columnconfigure(1, weight=1)
 
-        self.after(500, self.initial_checks)
+        # Chat / Output Log Display
+        display_frame = ttk.LabelFrame(self, text=" Interaction Log ", padding=10)
+        display_frame.pack(fill="both", expand=True, padx=15, pady=5)
 
-    def initial_checks(self):
-        """Check engine availability and prompt configuration wizard if no active engine is present."""
-        has_key = bool(os.getenv("GEMINI_API_KEY"))
-        has_ollama = check_ollama()
+        self.log_area = scrolledtext.ScrolledText(
+            display_frame, 
+            wrap="word", 
+            bg="#252526", 
+            fg="#d4d4d4", 
+            insertbackground="white",
+            font=("Consolas", 10),
+            borderwidth=0
+        )
+        self.log_area.pack(fill="both", expand=True)
 
-        if not has_key and not has_ollama:
-            SetupWizard(self)
+        # Input Prompt Area
+        input_frame = ttk.Frame(self, padding=(15, 5, 15, 15))
+        input_frame.pack(fill="x")
 
-        self.update_status()
+        self.input_entry = ttk.Entry(input_frame)
+        self.input_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        self.input_entry.bind("<Return>", lambda e: self.send_prompt())
 
-    def update_status(self):
-        """Update top bar indicator based on detected backend options."""
-        has_key = bool(os.getenv("GEMINI_API_KEY"))
-        has_ollama = check_ollama()
+        self.btn_send = ttk.Button(input_frame, text="Send Prompt", command=self.send_prompt)
+        self.btn_send.pack(side="right")
 
-        if has_key:
-            self.status_label.configure(text="🟢 Mode: Cloud (Gemini API Active)", text_color="#4CAF50")
-        elif has_ollama:
-            self.status_label.configure(text="🟢 Mode: Local (Ollama Instance Connected)", text_color="#4CAF50")
+    def load_initial_values(self):
+        saved_key = self.config_data.get("api_key", "")
+        saved_persona = self.config_data.get("persona", "Default Core")
+
+        if saved_key:
+            self.api_entry.insert(0, saved_key)
+            self.configure_genai(saved_key)
+
+        if saved_persona in PERSONAS:
+            self.persona_var.set(saved_persona)
         else:
-            self.status_label.configure(text="🟡 Mode: Offline / Restricted", text_color="#FFC107")
+            self.persona_var.set("Default Core")
 
-    def attach_file(self):
-        """Open system dialog to select media attachments for vision model processing."""
-        file_types = [("Media Files", "*.png *.jpg *.jpeg *.webp"), ("All Files", "*.*")]
-        path = filedialog.askopenfilename(filetypes=file_types)
-        if path:
-            self.selected_file = path
-            filename = os.path.basename(path)
-            self.file_label.configure(text=f"📎 Attached: {filename}", text_color="#2196F3")
+        self.log_message(f"[System] Application initialized with persona: {self.persona_var.get()}\n")
 
-    def write_chat(self, sender, text):
-        """Append formatted text messages into disabled chat display textbox."""
-        self.chat_box.configure(state="normal")
-        self.chat_box.insert("end", f"\n[{sender}]: {text}\n")
-        self.chat_box.see("end")
-        self.chat_box.configure(state="disabled")
+    def configure_genai(self, api_key):
+        if genai and api_key:
+            try:
+                genai.configure(api_key=api_key)
+                return True
+            except Exception as e:
+                self.log_message(f"[Error] Failed to configure Gemini API: {e}\n")
+        return False
 
-    def send_message(self):
-        """Extract input context and launch background inference thread."""
-        prompt = self.entry.get().strip()
-        if not prompt and not self.selected_file:
+    def save_api_key(self):
+        key = self.api_entry.get().strip()
+        if not key:
+            messagebox.showwarning("Warning", "API Key field is empty.")
             return
 
-        self.write_chat("User", prompt if prompt else "[Attached Media Processing]")
-        self.entry.delete(0, "end")
+        self.config_data["api_key"] = key
+        save_config(self.config_data)
         
-        file_path = self.selected_file
-        self.selected_file = None
-        self.file_label.configure(text="No attachment", text_color="gray")
+        if self.configure_genai(key):
+            messagebox.showinfo("Success", "API Key saved and configured successfully.")
+            self.log_message("[System] API Key updated successfully.\n")
 
-        self.send_btn.configure(state="disabled")
-        threading.Thread(target=self.process_inference, args=(prompt, file_path), daemon=True).start()
+    def on_persona_change(self, event=None):
+        selected = self.persona_var.get()
+        self.config_data["persona"] = selected
+        save_config(self.config_data)
+        self.log_message(f"[System] Persona switched to: {selected}\n")
 
-    def process_inference(self, prompt, file_path):
-        """Execute request against Cloud or Local API backends without locking GUI rendering."""
-        api_key = os.getenv("GEMINI_API_KEY")
-        ollama_active = check_ollama()
-        response = ""
+    def log_message(self, text):
+        self.log_area.insert("end", text)
+        self.log_area.see("end")
+
+    def send_prompt(self):
+        prompt = self.input_entry.get().strip()
+        if not prompt:
+            return
+
+        api_key = self.api_entry.get().strip()
+        if not api_key:
+            messagebox.showerror("Error", "Please enter and save a valid Gemini API Key first.")
+            return
+
+        self.log_message(f"\n[You]: {prompt}\n")
+        self.input_entry.delete(0, "end")
+
+        if not genai:
+            self.log_message("[System Error] google-generativeai module is missing.\n")
+            return
 
         try:
-            if api_key:
-                response = f"Cloud Engine Processed Query: '{prompt}'" + (f" with attachment {os.path.basename(file_path)}" if file_path else "")
-            elif ollama_active:
-                model = "llama3.2-vision" if file_path else "llama3"
-                payload = {"model": model, "prompt": prompt, "stream": False}
-                if file_path:
-                    payload["images"] = [encode_image_base64(file_path)]
-
-                res = requests.post("http://localhost:11434/api/generate", json=payload, timeout=60)
-                if res.status_code == 200:
-                    response = res.json().get("response", "No response received.")
-                else:
-                    response = f"Ollama Error: HTTP {res.status_code}. Ensure '{model}' is installed (`ollama pull {model}`)."
-            else:
-                response = "Error: No active AI backend. Add a GEMINI_API_KEY or start local Ollama."
-
+            persona_instruction = PERSONAS.get(self.persona_var.get(), "")
+            model = genai.GenerativeModel(
+                model_name="gemini-1.5-flash",
+                system_instruction=persona_instruction
+            )
+            response = model.generate_content(prompt)
+            self.log_message(f"[TAJ AN Core]: {response.text}\n")
         except Exception as e:
-            response = f"Execution Error: {str(e)}"
+            self.log_message(f"[API Error]: {str(e)}\n")
 
-        self.after(0, lambda: self.finish_inference(response))
+# --- 5. ENTRY POINT WITH PYINSTALLER FREEZE PROTECTION ---
+if __name__ == "__main__":
+    if sys.platform.startswith('win'):
+        import multiprocessing
+        multiprocessing.freeze_support()
 
-    def finish_inference(self, response):
-        """Output response back to chat and restore user interaction controls."""
-        self.write_chat("TAJ_AN Core", response)
-        self.send_btn.configure(state="normal")
-
-# --- Script Entry Point ---
-if __name__ == '__main__':
-    # Prevents infinite process spawning loops when compiled into binaries via PyInstaller
-    multiprocessing.freeze_support()
-    
-    app = TAJANCoreApp()
+    app = TajAnCoreApp()
     app.mainloop()
